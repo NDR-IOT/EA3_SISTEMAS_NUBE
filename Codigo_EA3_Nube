@@ -1,0 +1,193 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
+#include "mbedtls/md.h"
+
+// ============ CONFIGURACIÓN DE RED Y BROKER ============
+const char* ssid = "NIXONR";
+const char* password = "Alison1234439163";
+const char* mqtt_server = "10.69.147.149";
+const int mqtt_port = 8883;
+const char* mqtt_topic = "sensores/temp";
+
+// ============ CERTIFICADOS DIGITALES (mTLS) ============
+const char* ca_cert = R"EOF(-----BEGIN CERTIFICATE-----
+MIIC/zCCAeegAwIBAgIUB90o2UCrdktnzKTt9356f8rGuUcwDQYJKoZIhvcNAQEL
+BQAwDzENMAsGA1UEAwwETWlDQTAeFw0yNjExMjUwNzQxMDlaFw0yNzExMjUwNzQx
+MDlaMA8xDTALBgNVBAMMBE1pQ0EwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEK
+AoIBAQDJa6PbGD+rPeed+pNk8zYG/LidSvfiKbMJ5PwdzexyQOeTdF+FpsbJNa87
+H2rzaaVzOLhiEKU7bwKinNxkpDBuexgPJ0dO3z8JfSwfa/27ufEZ6j1uu4A19NcJ
+7L0o+tQ52qDJe8EVI33K6byb/xREJaYMV6oeILHbeMB7vt4jluWmg+7oWtlPBDzA
+X2rAZuilA5LuS5H/QF6DFqjVKqDAiGE/Og/e0FuPxH4b2YrMjBx8p3kyu3RB8+tm
+McBKhW8B6Z/ibGGXzfl9veXlpqVKIwEIGuaLDH8IQy0iLn7uLL7lpwJiX/kO6WTH
+sJkFb6pnKIiMYMKi3EYX+Y/ZODd/AgMBAAGjUzBRMB0GA1UdDgQWBBRm43tzt3z/
+leFsXvPoeMN+cu3yWzAfBgNVHSMEGDAWgBRm43tzt3z/leFsXvPoeMN+cu3yWzAP
+BgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQBexM6LPPVEVGGNaYjl
+riYdsSsQcZhRf6IINNwR37syP64CSqveTdBIal9F/J8OKzvBFzUx140G3JcFMkgs
+C7SAmNz2JXaN6FV5b5cSy2SNpwiCVRF5CAot5Q0NCawxStLq6b9tR8MoGv/0CO3R
+os6QdErOB9eMUe9/EgmDVDhCRzZaLqhlFxC25NFQMC3Kzih309R+f4aCLcoEz8WU
+esqvebkEnnNznGsYOkeQ9JVxdfELpwJ6bwjFR9HcJSckhLXypg8Fmu66YPoF7G0i
+yftl4jMq2h5RbN6kwGDrXemqam0Z1Op6V3GM4CmU56THPblX5EqUUbzGcebZ2aJu
+wbvq
+-----END CERTIFICATE-----)EOF";
+
+const char* client_cert = R"EOF(-----BEGIN CERTIFICATE-----
+MIIC9jCCAd6gAwIBAgIUPV3uaYn9DxBKDijrzghmgGfPDQMwDQYJKoZIhvcNAQEL
+BQAwDzENMAsGA1UEAwwETWlDQTAeFw0yNjExMjUwNzQxMTVaFw0yNzExMjUwNzQx
+MTVaMBcxFTATBgNVBAMMDEVTUDMyX0NsaWVudDCCASIwDQYJKoZIhvcNAQEBBQAD
+ggEPADCCAQoCggEBAInTwI6uPPrQ0Mz1ojOF8Xhtz2BYMQqIOfWZV3AMITmEssOw
+rA5C4amCbTsBBcQX+8ZUTzxAjoNWgpfa/K3eg9GUoD20rgKKz7bSf0HH0+ksfXTr
+rIqkai4ddKfYoAtW0wAjwsml3Vt43oSQuuH54abiyznCF0IjXIcP00F8Oqhn5mCM
+uGAM+itJV4oXHJxA9wXstWIo1mLdEIP745KsbEvrz9cCw5guF/mnXV/0LUMmKJha
+H5v/Y+YskrYfzbJ/kS2pCMfGkt+CkH4HTcCV0m+Qp9M9SFQGbV5SX5NIShBNwA9h
+4/6IDM18dg/NMx78zfAgbtatlHJR7CPRDeqqm5MCAwEAAaNCMEAwHQYDVR0OBBYE
+FLjjv4hnD7/DdiMY/n15i2daEDo9MB8GA1UdIwQYMBaAFGbje3O3fP+V4Wxe8+h4
+w35y7fJbMA0GCSqGSIb3DQEBCwUAA4IBAQAPbNeR1tk4a+zlUqMNmWtizEyoVaPY
+aoO4BMDn701gKcCt9skoCl6kzzKLKiBo7ivWdZwbW2A055gm34/Mn3dl+dCn/3q+
+/Yn0AVHTXPWIW+oBrEy5LgLAFk2Q3uO7NKCLAPNqTpaD3kkB50/g5qUPmWh7HmVY
+PGBIzWegDSeQnyegq6ZCweE7hptITeVy6EszHC3lZeCLgiw2AE/FoSYoIBodkmrP
+L2bXTb8cgHOE+uoQoP70Yl0v6RbMCLPp5elHXrEnzGXDv+Tl0nQ4j/w+z0E+Dbhr
+2sIb3hk/nLFij/z5QdI6490rFBkZL/ITAHxUpQumnaDSGehGe5Im1+sz
+-----END CERTIFICATE-----)EOF";
+
+const char* client_key = R"EOF(-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCJ08COrjz60NDM
+9aIzhfF4bc9gWDEKiDn1mVdwDCE5hLLDsKwOQuGpgm07AQXEF/vGVE88QI6DVoKX
+2vyt3oPRlKA9tK4Cis+20n9Bx9PpLH1066yKpGouHXSn2KALVtMAI8LJpd1beN6E
+kLrh+eGm4ss5whdCI1yHD9NBfDqoZ+ZgjLhgDPorSVeKFxycQPcF7LViKNZi3RCD
+++OSrGxL68/XAsOYLhf5p11f9C1DJiiYWh+b/2PmLJK2H82yf5EtqQjHxpLfgpB+
+B03AldJvkKfTPUhUBm1eUl+TSEoQTcAPYeP+iAzNfHYPzTMe/M3wIG7WrZRyUewj
+0Q3qqpuTAgMBAAECggEAPr7PZUVOTpL806oprxIV1ZEMPRy5KsXMuRIXm9Nx1rki
+FvOZyJ5LFHvjlV6ITPbsMKSWM+Rh3MnoBxDzQoZP9XwXnS/hnheqq1zWAVDjGL6f
+2Lgn4zAphJf1USpN5gufYGtnVJy1ktyKVMh8w76aK3sJMOC67OmjSHt8Xc4b+Ck1
+w3XzjtcP5SEC3wXHR3DO9NBjUVkBA/XrpQoLqf/0VyLwp8gRPt/ngjF3v55s3AZY
+fHpO9RlE4+iqIjUP+ozOHnATgNYZ55fVgmGbtLZfPsHfckrEiMWp/E/Fkbe8gvR4
+Zn4RPqYZYNySoAQq9GAY+bh4NdunA7p3fB2lHYd5zQKBgQDAlBdBJ3zIjcDpplLl
+hntTFNufqyjUnwLVjboqAnojyd7P5s/XEYgOyefgJuUdZYIDT0h277FKOAqvEnw+
+JCUlqiQKHoaZgw/mtmYCDVaNl4tPlGo3hflbFttAlh5hRipCEWmhaIIauQCbsd+U
+ILER7YHlkZOg2TY5ohUMxsacfwKBgQC3N6+gruK9Rs/ShA9BsVv+zXWg7NxRZl6n
+nZx17ZJILC86i3AFMwknNnVD2ox5GJUWRFjkziCDSTjqEA8WqWv/7krIG5mJz2j8
+6czottH47YODYKjM1/fhQ5FPNNs5qqliz0ryfH5e/bu76y0LEBmE3ZzRAfg6OoBF
+Oe/ajX9G7QKBgDlV3faQAx7S1XS7CEM93snFk/3dv7JOBVH/eEW5pxOwrp3HYmnt
+1kxQ4LBj5CL0bdj+ady/UFGAje3B2yvFJyonlcNNg1WBJ+LQu14xCmvtipSO43DU
+eoEcNPrttu3PLhWtiX181/+MxRmVw7MeaJml1N68kO96vCI8l3fOVqORAoGBAImS
+vMOQzhyF4WMXWkVfoc5QBHVTpZNRpN2DUYqTWvXqh4QUU4bz7XmOQLs0jaoYNUpF
+A+K6jFtITf4jFNFVYg0Ipwpe/wklvpW6EOzk6gFahxfNKrK1sCFrlN6+t6YzaYES
+Whp+NH2rVJ4kVuwpqJ/FsAyYyAUhDFPuzxVyjhF5AoGATF98lGOIGwO/gMTC19uY
+DML+JUvd1mCzR/SooS3cP0fLjOUoXV2mG8/ccXTto5pZAkMztpXN83t072TIHhyd
+WUG+XBfqEFkNN7SfmXDJafb49raNj3a6nxnKYb19wuOTVKJH8MsOmo2HBcKppr5c
+aNLEO0mZgvtHEuxlF4E8eCE=
+-----END PRIVATE KEY-----)EOF";
+
+WiFiClientSecure wifiClient;
+PubSubClient client(wifiClient);
+
+// ============ FUNCIÓN DE INTEGRIDAD SHA-256 ============
+String calcularSHA256(const String& payload) {
+  byte shaResult[32];
+  mbedtls_md_context_t ctx;
+  mbedtls_md_init(&ctx);
+  mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 0);
+  mbedtls_md_starts(&ctx);
+  mbedtls_md_update(&ctx, (const unsigned char*)payload.c_str(), payload.length());
+  mbedtls_md_finish(&ctx, shaResult);
+  mbedtls_md_free(&ctx);
+
+  String hashStr = "";
+  for (int i = 0; i < sizeof(shaResult); i++) {
+    char hex[3];
+    sprintf(hex, "%02x", (int)shaResult[i]);
+    hashStr += hex;
+  }
+  return hashStr;
+}
+
+// ============ CONEXIÓN Y RECONEXIÓN WI-FI ============
+void conectarWiFi() {
+  if (WiFi.status() == WL_CONNECTED) return;
+
+  Serial.print("Conectando a red Wi-Fi: ");
+  Serial.println(ssid);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  int intentos = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    intentos++;
+    if (intentos >= 30) {
+      Serial.println("\nReintentando enlace Wi-Fi...");
+      WiFi.disconnect();
+      WiFi.begin(ssid, password);
+      intentos = 0;
+    }
+  }
+  Serial.print("\nWi-Fi conectado. IP asignada: ");
+  Serial.println(WiFi.localIP());
+}
+
+// ============ RECONEXIÓN AUTOMÁTICA MQTT CON mTLS ============
+void reconectarMQTT() {
+  while (!client.connected()) {
+    if (WiFi.status() != WL_CONNECTED) {
+      conectarWiFi();
+    }
+
+    Serial.print("Iniciando handshake mTLS con el broker...");
+    if (client.connect("ESP32_Client")) {
+      Serial.println(" [CONEXIÓN AUTORIZADA]");
+    } else {
+      Serial.print(" [FALLO], rc=");
+      Serial.print(client.state());
+      Serial.println(" -> Reintentando en 5 segundos...");
+      delay(5000);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  conectarWiFi();
+
+  // Sincronización NTP para validar vigencia temporal de los certificados X.509
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  Serial.println("Sincronizando reloj NTP...");
+  delay(2000);
+
+  // Carga de autoridad certificadora y credenciales mutuas del cliente
+  wifiClient.setCACert(ca_cert);
+  wifiClient.setCertificate(client_cert);
+  wifiClient.setPrivateKey(client_key);
+
+  client.setServer(mqtt_server, mqtt_port);
+}
+
+void loop() {
+  // Bucle infinito con tolerancia a fallos de red y sesión MQTT
+  if (WiFi.status() != WL_CONNECTED) {
+    conectarWiFi();
+  }
+  if (!client.connected()) {
+    reconectarMQTT();
+  }
+  client.loop();
+
+  static unsigned long ultimoEnvio = 0;
+  if (millis() - ultimoEnvio >= 10000) {
+    ultimoEnvio = millis();
+
+    float temperatura = 25.50;
+    String valorStr = String(temperatura, 2);
+    String hashSHA256 = calcularSHA256(valorStr);
+
+    String mensajeJSON = "{\"val\": " + valorStr + ", \"hash\": \"" + hashSHA256 + "\"}";
+
+    if (client.publish(mqtt_topic, mensajeJSON.c_str())) {
+      Serial.println("Telemetría publicada: " + mensajeJSON);
+    } else {
+      Serial.println("Error al publicar telemetría.");
+    }
+  }
+}
